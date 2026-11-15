@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// 1. ENUMS (Catálogos cerrados de valores)
+
+enum RolUsuario {
+  ADMIN
+  DIRECCION
+}
+
+enum GradoEscolar {
+  PRIMERO
+  SEGUNDO
+  TERCERO
+}
+
+enum AlcanceCobroExtra {
+  POR_ALUMNO
+  POR_TUTOR
+}
+
+enum TipoRecargo {
+  FIJO
+  PORCENTAJE
+}
+
+enum EstadoCargo {
+  PENDIENTE
+  PARCIAL
+  PAGADO
+  VENCIDO
+  CANCELADO
+}
+
+enum MetodoPago {
+  EFECTIVO
+  TRANSFERENCIA
+  DEPOSITO
+}
+
+enum EstadoAvisoPago {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum TipoNotificacion {
+  RECORDATORIO_SEMANAL
+  AVISO_RECARGO
+  RECIBO_PAGO
+}
+
+// 2. PERSONAL, TUTORES Y ALUMNOS
+
+model Usuario {
+  id               Int         @id @default(autoincrement())
+  nombre           String
+  email            String      @unique
+  passwordHash     String
+  rol              RolUsuario  @default(DIRECCION)
+  activo           Boolean     @default(true)
+  pagosRegistrados Pago[]
+  avisosRevisados  AvisoPago[]
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
+model Tutor {
+  id              Int                    @id @default(autoincrement())
+  nombre          String
+  telefono        String                 @unique
+  pinAcceso       String
+  requiereFactura Boolean                @default(false)
+  activo          Boolean                @default(true)
+  alumnos         Alumno[]
+  cargosExtra     CargoExtra[]
+  avisosPago      AvisoPago[]
+  notificaciones  NotificacionWhatsapp[]
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+}
+
+model Alumno {
+  id                       Int                @id @default(autoincrement())
+  curp                String             @unique
+  nombre                   String
+  fechaNacimiento          DateTime
+  grado                    GradoEscolar
+  colegiaturaPersonalizada Decimal?           @db.Decimal(10, 2)
+  activo                   Boolean            @default(true)
+  tutorId                  Int
+  tutor                    Tutor              @relation(fields: [tutorId], references: [id])
+  cargosColegiatura        CargoColegiatura[]
+  cargosExtra              CargoExtra[]
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  @@index([grado, activo])
+}
+
+// 3. COLEGIATURAS POR CICLO ESCOLAR
+
+model CicloEscolar {
+  id               Int                 @id @default(autoincrement())
+  nombre           String              @unique
+  montoSemanalBase Decimal             @db.Decimal(10, 2)
+  aplicaRecargo    Boolean             @default(true)
+  tipoRecargo      TipoRecargo?
+  valorRecargo     Decimal?            @db.Decimal(10, 2)
+  activo           Boolean             @default(true)
+  semanas          SemanaColegiatura[]
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model SemanaColegiatura {
+  id              Int                @id @default(autoincrement())
+  numeroSemana    Int
+  descripcion     String
+  fechaInicio     DateTime
+  fechaFin        DateTime
+  fechaLimitePago DateTime
+  activa          Boolean            @default(true)
+  cicloEscolarId  Int
+  cicloEscolar    CicloEscolar       @relation(fields: [cicloEscolarId], references: [id])
+  cargos          CargoColegiatura[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@unique([cicloEscolarId, numeroSemana])
+}
+
+model CargoColegiatura {
+  id                  Int                    @id @default(autoincrement())
+  montoBase           Decimal                @db.Decimal(10, 2)
+  recargo             Decimal                @default(0) @db.Decimal(10, 2)
+  montoTotal          Decimal                @db.Decimal(10, 2)
+  estado              EstadoCargo            @default(PENDIENTE)
+  recargoAplicado     Boolean                @default(false)
+  recargoCondonado    Boolean                @default(false)
+  motivoCondonacion   String?
+  motivoCancelacion   String?
+  alumnoId            Int
+  alumno              Alumno                 @relation(fields: [alumnoId], references: [id])
+  semanaColegiaturaId Int
+  semanaColegiatura   SemanaColegiatura      @relation(fields: [semanaColegiaturaId], references: [id])
+  pagos               Pago[]
+  avisosPago          AvisoPago[]
+  notificaciones      NotificacionWhatsapp[]
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  @@unique([alumnoId, semanaColegiaturaId])
+}
+
+// 4.PAGOS EXTRA (EVENTOS / ACTIVIDADES)
+
+model ConceptoExtra {
+  id              Int               @id @default(autoincrement())
+  nombre          String
+  descripcion     String?
+  montoDefault    Decimal           @db.Decimal(10, 2)
+  alcance         AlcanceCobroExtra @default(POR_ALUMNO)
+  fechaLimitePago DateTime?
+  aplicaRecargo   Boolean           @default(false)
+  tipoRecargo     TipoRecargo?
+  valorRecargo    Decimal?          @db.Decimal(10, 2)
+  activo          Boolean           @default(true)
+  cargosExtra     CargoExtra[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model CargoExtra {
+  id                Int                    @id @default(autoincrement())
+  montoBase         Decimal                @db.Decimal(10, 2)
+  recargo           Decimal                @default(0) @db.Decimal(10, 2)
+  montoTotal        Decimal                @db.Decimal(10, 2)
+  fechaLimite       DateTime?
+  estado            EstadoCargo            @default(PENDIENTE)
+  recargoAplicado   Boolean                @default(false)
+  recargoCondonado  Boolean                @default(false)
+  motivoCondonacion String?
+  motivoCancelacion String?
+  alumnoId          Int?
+  alumno            Alumno?                @relation(fields: [alumnoId], references: [id])
+  tutorId           Int?
+  tutor             Tutor?                 @relation(fields: [tutorId], references: [id])
+  conceptoExtraId   Int
+  conceptoExtra     ConceptoExtra          @relation(fields: [conceptoExtraId], references: [id])
+  pagos             Pago[]
+  avisosPago        AvisoPago[]
+  notificaciones    NotificacionWhatsapp[]
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+}
+
+// 5. CAJA UNIFICADA, AVISOS Y WHATSAPP
+
+model Pago {
+  id                         Int               @id @default(autoincrement())
+  montoPagado                Decimal           @db.Decimal(10, 2)
+  metodoPago                 MetodoPago
+  ultimos4DigitosCuenta      String?
+  nombreTitularTransferencia String?
+  rutaComprobante            String?
+  referencia                 String?
+  requiereFactura            Boolean           @default(false)
+  fechaPago                  DateTime          @default(now())
+  cargoColegiaturaId         Int?
+  cargoColegiatura           CargoColegiatura? @relation(fields: [cargoColegiaturaId], references: [id])
+  cargoExtraId               Int?
+  cargoExtra                 CargoExtra?       @relation(fields: [cargoExtraId], references: [id])
+  usuarioId                  Int
+  usuario                    Usuario           @relation(fields: [usuarioId], references: [id])
+  avisoPago                  AvisoPago?
+  createdAt                  DateTime          @default(now())
+}
+
+model AvisoPago {
+  id                 Int               @id @default(autoincrement())
+  metodoPago         MetodoPago
+  montoReportado     Decimal           @db.Decimal(10, 2)
+  fechaOperacion     DateTime
+  ultimos4Digitos    String?
+  nombreOrdenante    String?
+  rutaComprobante    String?
+  estado             EstadoAvisoPago   @default(PENDIENTE)
+  leidoPorDireccion  Boolean           @default(false)
+  observaciones      String?
+  tutorId            Int
+  tutor              Tutor             @relation(fields: [tutorId], references: [id])
+  cargoColegiaturaId Int?
+  cargoColegiatura   CargoColegiatura? @relation(fields: [cargoColegiaturaId], references: [id])
+  cargoExtraId       Int?
+  cargoExtra         CargoExtra?       @relation(fields: [cargoExtraId], references: [id])
+  revisadoPorId      Int?
+  revisadoPor        Usuario?          @relation(fields: [revisadoPorId], references: [id])
+  pagoGeneradoId     Int?              @unique
+  pagoGenerado       Pago?             @relation(fields: [pagoGeneradoId], references: [id])
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+}
+
+model NotificacionWhatsapp {
+  id                 Int               @id @default(autoincrement())
+  tipo               TipoNotificacion
+  telefonoDestino    String
+  mensaje            String
+  enviado            Boolean           @default(false)
+  errorDetalle       String?
+  fechaEnvio         DateTime          @default(now())
+  tutorId            Int
+  tutor              Tutor             @relation(fields: [tutorId], references: [id])
+  cargoColegiaturaId Int?
+  cargoColegiatura   CargoColegiatura? @relation(fields: [cargoColegiaturaId], references: [id])
+  cargoExtraId       Int?
+  cargoExtra         CargoExtra?       @relation(fields: [cargoExtraId], references: [id])
+}
